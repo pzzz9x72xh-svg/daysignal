@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0b0f" />
+  <title>DaySignal</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --card:#14141c; --text:#f3f4f6; --muted:#a1a1aa;
+      --green:#22c55e; --yellow:#eab308; --red:#ef4444; --gray:#6b7280;
+      --border:#262633;
+    }
+    html,body{height:100%; background:var(--bg); color:var(--text); margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial;}
+    .wrap{max-width:720px; margin:0 auto; padding:18px 14px 40px;}
+    .top{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;}
+    .title{font-size:22px; font-weight:800; letter-spacing:.2px;}
+    .btn{background:transparent; color:var(--text); border:1px solid var(--border); padding:10px 12px; border-radius:12px; font-weight:700;}
+    .btn:active{transform:scale(.99);}
+    .banner{display:flex; align-items:flex-start; gap:10px; background:var(--card); border:1px solid var(--border); padding:12px; border-radius:16px; margin-bottom:12px;}
+    .dot{width:14px; height:14px; border-radius:50%; margin-top:3px;}
+    .note{font-size:14px; font-weight:700;}
+    .small{font-size:12px; color:var(--muted); margin-top:2px; line-height:1.35;}
+    .grid{display:grid; gap:10px;}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px;}
+    .row{display:flex; justify-content:space-between; align-items:center; gap:10px;}
+    .sym{font-size:18px; font-weight:800;}
+    .pill{padding:6px 10px; border-radius:999px; font-size:12px; font-weight:900; color:white;}
+    .pill.buy{background:var(--green);}
+    .pill.wait{background:var(--gray);}
+    .pill.sell{background:var(--red);}
+    .setup{color:var(--muted); font-size:13px; margin-top:4px;}
+    .kv{font-size:13px; margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+    .kv div{background:#101018; border:1px solid var(--border); padding:8px; border-radius:12px;}
+    .kv b{display:block; font-size:11px; color:var(--muted); margin-bottom:3px;}
+    .why{margin-top:10px; font-size:13px; color:var(--text);}
+    .why ul{margin:6px 0 0 18px; color:var(--muted);}
+    .err{background:#2a1111; border:1px solid #5b1a1a; padding:10px; border-radius:14px; color:#fecaca; margin:10px 0;}
+    .settings{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px; margin-top:10px;}
+    label{display:block; font-size:12px; color:var(--muted); margin:8px 0 6px;}
+    input{width:100%; box-sizing:border-box; background:#101018; color:var(--text); border:1px solid var(--border); padding:10px 12px; border-radius:12px; font-size:14px;}
+    .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.4;}
+    .footer{margin-top:14px; font-size:12px; color:var(--muted); line-height:1.4;}
+    a{color:#93c5fd;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="title">DaySignal</div>
+        <div class="small">Ampel + Long-Signale (VWAP Reclaim) mit Live-Daten</div>
+      </div>
+      <button class="btn" id="refreshBtn">Refresh</button>
+    </div>
+
+    <div class="banner">
+      <div class="dot" id="marketDot" style="background: var(--yellow)"></div>
+      <div>
+        <div class="note" id="marketNote">Lade Marktstatus…</div>
+        <div class="small" id="lastUpdate">—</div>
+      </div>
+    </div>
+
+    <div id="errorBox" class="err" style="display:none"></div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="settings">
+      <div class="row">
+        <div style="font-weight:800">Einstellungen</div>
+        <button class="btn" id="saveBtn">Speichern</button>
+      </div>
+      <label for="backendUrl">Backend URL (Live-Daten)</label>
+      <input id="backendUrl" placeholder="z.B. https://dein-backend.onrender.com" />
+      <div class="hint">
+        Tipp: Wenn du Backend zuhause laufen lässt, funktioniert es nur im selben WLAN (iPhone braucht dann die IP deines PCs/Macs).
+      </div>
+      <label for="autoRefresh">Auto-Refresh (Sekunden)</label>
+      <input id="autoRefresh" type="number" min="10" step="5" />
+      <div class="hint">
+        Standard: 30 Sekunden. Für Einsteiger reicht das völlig.
+      </div>
+    </div>
+
+    <div class="footer">
+      <b>Hinweis:</b> Das ist ein Signal-Tool, keine Finanzberatung. Du entscheidest selbst und tradest manuell im Browser.
+      <br/><br/>
+      <b>Als App auf den Homescreen:</b> Safari → Teilen → „Zum Home-Bildschirm“.
+    </div>
+  </div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+
+const DEFAULTS = {
+  backendUrl: localStorage.getItem("backendUrl") || "",
+  autoRefresh: Number(localStorage.getItem("autoRefresh") || "30")
+};
+
+$("backendUrl").value = DEFAULTS.backendUrl;
+$("autoRefresh").value = DEFAULTS.autoRefresh;
+
+let timer = null;
+
+function setDot(light){
+  const dot = $("marketDot");
+  if(light==="GREEN") dot.style.background = "var(--green)";
+  else if(light==="RED") dot.style.background = "var(--red)";
+  else dot.style.background = "var(--yellow)";
+}
+
+function fmt(v){
+  if(v===null || v===undefined) return "—";
+  return Number(v).toFixed(2);
+}
+
+function pill(action){
+  const cls = action==="BUY" ? "buy" : (action==="SELL" ? "sell" : "wait");
+  return `<span class="pill ${cls}">${action}</span>`;
+}
+
+function render(data){
+  setDot((data.market && data.market.spyLight) || "YELLOW");
+  $("marketNote").textContent = (data.market && data.market.note) ? data.market.note : "Marktstatus";
+  $("lastUpdate").textContent = "Letztes Update: " + new Date().toLocaleString();
+
+  const cards = $("cards");
+  cards.innerHTML = "";
+
+  (data.signals || []).slice(0,5).forEach(s=>{
+    const action = s.action || "WAIT";
+    const entry = fmt(s.entryPrice);
+    const stop = fmt(s.stop);
+    const tp1 = fmt(s.tp1);
+    const tp2 = fmt(s.tp2);
+
+    const reasons = (s.reasons||[]).map(r=>`<li>${escapeHtml(r)}</li>`).join("");
+    const why = reasons ? `<div class="why"><b>Warum?</b><ul>${reasons}</ul></div>` : "";
+
+    const kv = (action==="BUY") ? `
+      <div class="kv">
+        <div><b>Entry</b>${entry}</div>
+        <div><b>Stop</b>${stop}</div>
+        <div><b>TP1</b>${tp1}</div>
+        <div><b>TP2</b>${tp2}</div>
+        <div><b>Risiko</b>${Math.round(s.riskEUR||0)} €</div>
+        <div><b>Stückzahl</b>${s.shares||0}</div>
+      </div>` : `
+      <div class="kv">
+        <div style="grid-column:1/3"><b>Regel</b>${escapeHtml(s.entryTriggerText || "Warten bis Setup sauber ist.")}</div>
+      </div>`;
+
+    const html = `
+      <div class="card">
+        <div class="row">
+          <div class="sym">${escapeHtml(s.symbol||s.id||"—")}</div>
+          ${pill(action)}
+        </div>
+        <div class="setup">${escapeHtml(s.setup || "VWAP Reclaim (Long)")}</div>
+        ${kv}
+        ${why}
+        <div class="small" style="margin-top:10px">Confidence: ${s.confidence ?? "—"}%</div>
+      </div>
+    `;
+    cards.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+function showError(msg){
+  const box = $("errorBox");
+  box.style.display = "block";
+  box.textContent = msg;
+}
+function clearError(){
+  const box = $("errorBox");
+  box.style.display = "none";
+  box.textContent = "";
+}
+
+function escapeHtml(str){
+  return String(str)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+async function load(){
+  clearError();
+  const backendUrl = (localStorage.getItem("backendUrl") || "").trim();
+  if(!backendUrl){
+    showError("Bitte unter Einstellungen eine Backend URL eintragen (Live-Daten).");
+    return;
+  }
+  try{
+    const res = await fetch(backendUrl.replace(/\/$/,"") + "/today", {cache:"no-store"});
+    if(!res.ok){
+      throw new Error("HTTP " + res.status);
+    }
+    const data = await res.json();
+    render(data);
+  }catch(e){
+    showError("Konnte Live-Daten nicht laden. Prüfe Backend URL, WLAN/Internet und ob das Backend läuft.\n\nFehler: " + e.message);
+  }
+}
+
+function restartTimer(){
+  if(timer) clearInterval(timer);
+  const secs = Number(localStorage.getItem("autoRefresh") || "30");
+  timer = setInterval(load, Math.max(10, secs) * 1000);
+}
+
+$("refreshBtn").addEventListener("click", load);
+$("saveBtn").addEventListener("click", ()=>{
+  const url = $("backendUrl").value.trim();
+  const secs = Number($("autoRefresh").value || "30");
+  localStorage.setItem("backendUrl", url);
+  localStorage.setItem("autoRefresh", String(secs));
+  restartTimer();
+  load();
+});
+
+restartTimer();
+load();
+</script>
+</body>
+</html>
